@@ -191,7 +191,7 @@ export default function Home() {
       {/* Title */}
       <div className="text-center">
         <h1 className="text-5xl font-bold tracking-tight">Key Detector</h1>
-        <p className="text-gray-400 mt-2 text-lg">Sing or play an instrument — get the key instantly</p>
+        <p className="text-gray-400 mt-2 text-lg">Sing or play an instrument, get the key instantly</p>
       </div>
 
       {/* Key + Confidence */}
