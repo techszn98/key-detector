@@ -41,7 +41,6 @@ function getChroma(analyser) {
   const sampleRate = analyser.context.sampleRate;
   const chroma = new Array(12).fill(0);
   let totalEnergy = 0;
-
   for (let i = 1; i < bufferLength; i++) {
     const freq = (i * sampleRate) / (2 * bufferLength);
     if (freq < 60 || freq > 2000) continue;
@@ -54,7 +53,6 @@ function getChroma(analyser) {
     chroma[pitchClass] += amplitude * freqWeight;
     totalEnergy += amplitude * freqWeight;
   }
-
   if (totalEnergy < 0.005) return null;
   const max = Math.max(...chroma);
   return max > 0 ? chroma.map((v) => v / max) : null;
@@ -80,6 +78,29 @@ function getConfidenceLabel(score) {
   if (score >= 0.70) return { label: "Good", color: "text-lime-400", bar: "bg-lime-400", pct: 75 };
   if (score >= 0.55) return { label: "Medium", color: "text-yellow-400", bar: "bg-yellow-400", pct: 50 };
   return { label: "Low", color: "text-red-400", bar: "bg-red-400", pct: 25 };
+}
+
+function TrebleClef({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 100 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M55 10 C55 10 35 30 35 65 C35 85 45 95 55 100 C65 105 75 100 75 88 C75 76 65 68 55 68 C45 68 38 75 38 85 C38 95 45 102 55 105 C55 105 55 140 45 155 C40 162 33 165 33 165"
+        stroke="currentColor"
+        strokeWidth="5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      <path
+        d="M55 105 C55 120 57 135 55 155 C53 165 47 172 42 170 C37 168 33 162 35 155 C37 148 45 147 50 152 C55 157 53 165 48 166"
+        stroke="currentColor"
+        strokeWidth="5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
 }
 
 export default function Home() {
@@ -114,39 +135,33 @@ export default function Home() {
       setListening(true);
       setStatus("Listening...");
 
-      // Collect frames every 150ms + update chroma bars live
       const collectInterval = setInterval(() => {
         const c = getChroma(analyserRef.current);
         if (c) {
           chromaBufferRef.current.push(c);
           if (chromaBufferRef.current.length > 10) chromaBufferRef.current.shift();
-          setChroma(c); // live bar update
+          setChroma(c);
         }
       }, 150);
 
-      // Analyze & vote every 600ms
       const analyzeInterval = setInterval(() => {
         const buffer = chromaBufferRef.current;
         if (buffer.length < 3) {
           setStatus("Listening... (play a note or chord)");
           return;
         }
-
         const avgChroma = new Array(12).fill(0);
         for (const frame of buffer) {
           for (let i = 0; i < 12; i++) avgChroma[i] += frame[i];
         }
         const averaged = avgChroma.map((v) => v / buffer.length);
         const result = detectKey(averaged);
-
         voteHistoryRef.current.push(result);
         if (voteHistoryRef.current.length > 5) voteHistoryRef.current.shift();
-
         const winner = majorityVote(voteHistoryRef.current);
         const matchCount = voteHistoryRef.current.filter(
           (v) => v.root === winner?.root && v.mode === winner?.mode
         ).length;
-
         if (winner && matchCount >= 3) {
           setRootNote(winner.root);
           setKeyMode(winner.mode);
@@ -155,7 +170,6 @@ export default function Home() {
         } else {
           setStatus("Listening... (analyzing...)");
         }
-
         chromaBufferRef.current = [];
       }, 600);
 
@@ -188,10 +202,14 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center gap-6 px-4 py-10">
 
-      {/* Title */}
-      <div className="text-center">
-        <h1 className="text-5xl font-bold tracking-tight">Key Detector</h1>
-        <p className="text-gray-400 mt-2 text-lg">Sing or play an instrument, get the key instantly</p>
+      {/* Title with Treble Clef */}
+      <div className="text-center flex flex-col items-center gap-2">
+        <div className="flex items-center justify-center gap-3">
+          <TrebleClef className="w-8 h-14 text-indigo-400" />
+          <h1 className="text-5xl font-bold tracking-tight">Key Detector</h1>
+          <TrebleClef className="w-8 h-14 text-indigo-400 scale-x-[-1]" />
+        </div>
+        <p className="text-gray-400 mt-1 text-lg">Sing or play an instrument — get the key instantly</p>
       </div>
 
       {/* Key + Confidence */}
@@ -200,7 +218,6 @@ export default function Home() {
         <div className="text-8xl font-black text-white leading-none">{rootNote}</div>
         <div className="text-2xl text-indigo-400 font-semibold">{keyMode}</div>
 
-        {/* Confidence bar */}
         {confInfo ? (
           <div className="w-full mt-2">
             <div className="flex justify-between text-xs mb-1">
@@ -208,10 +225,8 @@ export default function Home() {
               <span className={`font-bold ${confInfo.color}`}>{confInfo.label}</span>
             </div>
             <div className="w-full bg-gray-800 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full transition-all duration-500 ${confInfo.bar}`}
-                style={{ width: `${confInfo.pct}%` }}
-              />
+              <div className={`h-2 rounded-full transition-all duration-500 ${confInfo.bar}`}
+                style={{ width: `${confInfo.pct}%` }} />
             </div>
           </div>
         ) : (
@@ -235,7 +250,7 @@ export default function Home() {
                 style={{
                   height: `${Math.max(4, chroma[i] * 60)}px`,
                   backgroundColor: note === rootNote
-                    ? "#818cf8"  // indigo for root note
+                    ? "#818cf8"
                     : `hsl(${160 + chroma[i] * 60}, 70%, 50%)`,
                 }}
               />
