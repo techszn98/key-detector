@@ -41,19 +41,38 @@ function getChroma(analyser) {
   const sampleRate = analyser.context.sampleRate;
   const chroma = new Array(12).fill(0);
   let totalEnergy = 0;
+
   for (let i = 1; i < bufferLength; i++) {
     const freq = (i * sampleRate) / (2 * bufferLength);
-    if (freq < 60 || freq > 2000) continue;
+
+    // Extended range: 27Hz (lowest piano A) to 4200Hz
+    if (freq < 27 || freq > 4200) continue;
+
     const db = dataArray[i];
-    if (db < -80) continue;
+    if (db < -90) continue;
+
     const amplitude = Math.pow(10, db / 20);
-    const freqWeight = 1 / (1 + freq / 500);
+
+    // Strong boost for low frequencies (bass octaves)
+    // Below 250Hz gets the biggest boost, tapers off above
+    let freqWeight;
+    if (freq < 250) {
+      freqWeight = 4.0 / (1 + freq / 80);   // aggressive bass boost
+    } else if (freq < 1000) {
+      freqWeight = 1.5 / (1 + freq / 500);  // mid-range moderate weight
+    } else {
+      freqWeight = 0.5 / (1 + freq / 1000); // reduce high harmonics
+    }
+
     const midiNote = 12 * Math.log2(freq / 440) + 69;
     const pitchClass = ((Math.round(midiNote) % 12) + 12) % 12;
     chroma[pitchClass] += amplitude * freqWeight;
     totalEnergy += amplitude * freqWeight;
   }
-  if (totalEnergy < 0.005) return null;
+
+  // Lower silence threshold so quiet low notes aren't ignored
+  if (totalEnergy < 0.001) return null;
+
   const max = Math.max(...chroma);
   return max > 0 ? chroma.map((v) => v / max) : null;
 }
@@ -85,19 +104,11 @@ function TrebleClef({ className }) {
     <svg className={className} viewBox="0 0 100 180" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M55 10 C55 10 35 30 35 65 C35 85 45 95 55 100 C65 105 75 100 75 88 C75 76 65 68 55 68 C45 68 38 75 38 85 C38 95 45 102 55 105 C55 105 55 140 45 155 C40 162 33 165 33 165"
-        stroke="currentColor"
-        strokeWidth="5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
+        stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"
       />
       <path
         d="M55 105 C55 120 57 135 55 155 C53 165 47 172 42 170 C37 168 33 162 35 155 C37 148 45 147 50 152 C55 157 53 165 48 166"
-        stroke="currentColor"
-        strokeWidth="5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
+        stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none"
       />
     </svg>
   );
@@ -120,16 +131,27 @@ export default function Home() {
 
   const startListening = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,  // off — echo cancellation distorts low notes
+          noiseSuppression: false,  // off — noise suppression kills bass frequencies
+          autoGainControl: false,   // off — we want raw unmodified signal
+          sampleRate: 48000,        // high sample rate for better low freq resolution
+        }
+      });
       streamRef.current = stream;
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
       audioContextRef.current = audioContext;
+
       const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 16384;
-      analyser.smoothingTimeConstant = 0.6;
+      analyser.fftSize = 32768;           // maximum resolution for low freq accuracy
+      analyser.smoothingTimeConstant = 0.7;
       analyserRef.current = analyser;
+
       const source = audioContext.createMediaStreamSource(stream);
       source.connect(analyser);
+
       chromaBufferRef.current = [];
       voteHistoryRef.current = [];
       setListening(true);
@@ -139,7 +161,7 @@ export default function Home() {
         const c = getChroma(analyserRef.current);
         if (c) {
           chromaBufferRef.current.push(c);
-          if (chromaBufferRef.current.length > 10) chromaBufferRef.current.shift();
+          if (chromaBufferRef.current.length > 12) chromaBufferRef.current.shift();
           setChroma(c);
         }
       }, 150);
@@ -150,18 +172,22 @@ export default function Home() {
           setStatus("Listening... (play a note or chord)");
           return;
         }
+
         const avgChroma = new Array(12).fill(0);
         for (const frame of buffer) {
           for (let i = 0; i < 12; i++) avgChroma[i] += frame[i];
         }
         const averaged = avgChroma.map((v) => v / buffer.length);
         const result = detectKey(averaged);
+
         voteHistoryRef.current.push(result);
-        if (voteHistoryRef.current.length > 5) voteHistoryRef.current.shift();
+        if (voteHistoryRef.current.length > 6) voteHistoryRef.current.shift();
+
         const winner = majorityVote(voteHistoryRef.current);
         const matchCount = voteHistoryRef.current.filter(
           (v) => v.root === winner?.root && v.mode === winner?.mode
         ).length;
+
         if (winner && matchCount >= 3) {
           setRootNote(winner.root);
           setKeyMode(winner.mode);
@@ -170,6 +196,7 @@ export default function Home() {
         } else {
           setStatus("Listening... (analyzing...)");
         }
+
         chromaBufferRef.current = [];
       }, 600);
 
